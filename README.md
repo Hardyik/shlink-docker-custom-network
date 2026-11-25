@@ -1,90 +1,47 @@
-# DEVOPS-6: Run Shlink with Plain Docker on a Custom Network
+# DEVOPS-6 — Run Shlink with Plain Docker on a Custom Network
 
 ## Project Overview
 
-This project demonstrates deploying Shlink, a self-hosted URL shortener, using plain Docker containers connected through a custom Docker bridge network.
+This project deploys a multi-container Shlink URL-shortening stack using plain Docker Engine commands and a user-defined Docker bridge network (`shlink-net`), without Docker Compose.
 
-## Technologies Used
+## Technology Stack
 
-- Docker Desktop
-- Ubuntu (WSL2)
-- PostgreSQL 16
-- Redis 7
-- Shlink Server
-- Docker Networking
+- **Docker Engine** (Ubuntu / WSL2)
+- **Shlink Server:** `shlinkio/shlink:5.1.6`
+- **Shlink Web Client:** `shlinkio/shlink-web-client:4.8.1`
+- **PostgreSQL:** `postgres:16-alpine`
+- **Redis:** `redis:7-alpine`
+- **BusyBox:** `busybox` (for DNS and connectivity verification)
 
-## Architecture
+## Network & Port Configuration
 
-The application consists of four containers:
+All four containers run on the custom bridge network `shlink-net`. Only the Shlink Server and Web Client ports are published to the host; PostgreSQL and Redis remain strictly internal.
 
-1. Shlink Server – Handles URL creation and redirection.
-2. Shlink Web Client – Provides the web interface.
-3. PostgreSQL – Stores application data.
-4. Redis – Provides caching and related services.
+| Service | Container Name | Image (Pinned) | Published Host Port | Internal Port |
+|---|---|---|---|---|
+| Shlink Server | `shlink-server` | `shlinkio/shlink:5.1.6` | `8080` (`8080->8080/tcp`) | `8080` |
+| Shlink Web Client | `shlink-web` | `shlinkio/shlink-web-client:4.8.1` | `8000` (`8000->8080/tcp`) | `8080` |
+| PostgreSQL | `shlink-db` | `postgres:16-alpine` | None (internal only) | `5432` |
+| Redis | `shlink-redis` | `redis:7-alpine` | None (internal only) | `6379` |
 
-All containers communicate through a custom Docker network named `shlink-net`.
+## Key Technical Findings
 
-## Current Implementation
+### 1. Default Bridge vs. User-Defined Network (`shlink-net`)
+- **User-Defined Network (`shlink-net`):** Docker runs an embedded DNS server at `127.0.0.11` for user-defined bridge networks. Containers attached to `shlink-net` can dynamically resolve and reach each other by container name (e.g., `shlink-db` resolved to `172.18.0.2`), avoiding hardcoded IP addresses.
+- **Default `bridge` Network:** Containers on the default bridge do not get automatic container-name DNS resolution; queries fall back to the host's upstream DNS resolver (`192.168.65.7`), causing `nslookup shlink-db` to fail with `NXDOMAIN`.
 
-- Created the custom Docker network `shlink-net`.
-- Started PostgreSQL and Redis containers.
-- Deployed Shlink Server.
-- Configured database connectivity.
-- Verified container networking.
-- Successfully initialized the database.
-- Verified Shlink health endpoint.
-- Created and listed a test short URL.
+### 2. Database Failure & Recovery Behavior
+- **When `shlink-db` stops:** The `shlink-server` container continues running, but `GET /rest/health` probes the PostgreSQL connection, fails, and returns `HTTP/1.1 503 Service Unavailable` with `{"status":"fail",...}`. This signals reverse proxies or load balancers to stop routing traffic to the unhealthy instance.
+- **When `shlink-db` restarts:** Shlink automatically re-establishes database connectivity on subsequent requests without requiring a container restart, returning `/rest/health` to `HTTP/1.1 200 OK` with `{"status":"pass",...}`.
 
-## Environment
+## Security & Secrets Hygiene
 
-| Component | Version |
-|---|---|
-| Docker | 29.9.3 |
-| Docker Compose | 5.7.0 |
-| PostgreSQL | 16 Alpine |
-| Redis | 7 Alpine |
-| Shlink Server | 5.1.8 (currently deployed) |
+- Only dummy development credentials (`dev-only-password` and `intern-dev-api-key-0001`) were used during deployment and testing.
+- `SHLINK_SERVER_API_KEY` was intentionally omitted from `shlink-web` so credentials are not written into static browser-downloadable assets; the server connection was configured via the UI instead.
 
-**Version note:** The final task acceptance requires checking the mentor-specified pinned image versions. The current deployment uses the `stable` tag and needs to be aligned with the required pinned version.
+## Deliverables in This Repository
 
-## Health Check
-
-Endpoint:
-
-`http://localhost:8080/rest/v3/health`
-
-Observed result:
-
-`"status": "pass"`
-
-## Docker Network
-
-Network name: `shlink-net`
-
-Driver: `bridge`
-
-## Pending Work
-
-- Deploy Shlink Web Client.
-- Complete browser smoke tests S1–S4.
-- Verify container DNS resolution.
-- Test database failure and recovery.
-- Capture final evidence.
-- Clean up containers and network.
-
-## Security
-
-Only dummy development credentials are used. Actual passwords, API keys and GeoLite2 license keys must never be committed.
-
-## Learning Outcomes
-
-- Docker container management.
-- Custom bridge networking.
-- Container-to-container communication.
-- PostgreSQL and Redis integration.
-- Application health checks.
-- Troubleshooting multi-container deployments.
-
-## Project Status
-
-In Progress – Initial Docker environment, database, Redis and Shlink Server deployment completed.
+- `README.md` — Project overview, architecture summary, and technical notes.
+- `run-commands.md` — Complete end-to-end Docker setup, smoke test, failure test, and cleanup commands.
+- `testing.md` — Verification logs and outputs for network isolation, DNS resolution, smoke tests (S1–S4), and database outage recovery.
+- `Architecture.md` & hand-drawn diagram — Service topology and port exposure diagram.
