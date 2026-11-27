@@ -17,6 +17,8 @@ This project deploys a multi-container Shlink URL-shortening stack using plain D
 
 ![Shlink Docker Custom Network Architecture](./DEVOPS-6-Shlink-Docker/Architecture.jpg)
 
+*(Note: Ensure the rotated hand-drawn diagram file in the repository root matches `./diagram.jpg` or update the extension accordingly.)*
+
 ## Network & Port Configuration
 
 All four containers run on the custom bridge network `shlink-net`. Only the Shlink Server and Web Client ports are published to the host; PostgreSQL and Redis remain strictly internal.
@@ -35,8 +37,63 @@ All four containers run on the custom bridge network `shlink-net`. Only the Shli
 - **Default `bridge` Network:** Containers on the default bridge do not get automatic container-name DNS resolution; queries fall back to the host's upstream DNS resolver (`192.168.65.7`), causing `nslookup shlink-db` to fail with `NXDOMAIN`.
 
 ### 2. Database Failure & Recovery Behavior
-- **When `shlink-db` stops:** The `shlink-server` container continues running, but `GET /rest/health` probes the PostgreSQL connection, fails, and returns `HTTP/1.1 503 Service Unavailable` with `{"status":"fail",...}`. This signals reverse proxies or load balancers to stop routing traffic to the unhealthy instance.
-- **When `shlink-db` restarts:** Shlink automatically re-establishes database connectivity on subsequent requests without requiring a container restart, returning `/rest/health` to `HTTP/1.1 200 OK` with `{"status":"pass",...}`.
+
+When `shlink-db` was stopped, `GET /rest/health` immediately returned `HTTP/1.1 503 Service Unavailable` (`{"status":"fail",...}`):
+
+```http
+HTTP/1.1 503 Service Unavailable
+Content-Length: 120
+Content-Type: application/health+json
+X-Request-Id: da8a7784-dd2e-46d3-82b3-3e760dd5d5a1
+Date: Fri, 27 Nov 2026 12:19:49 GMT
+
+{"status":"fail","version":"5.1.6","links":{"about":"https://shlink.io","project":"https://github.com/shlinkio/shlink"}}
+```
+
+**Server Log Output (`docker logs --tail 15 shlink-server` while `shlink-db` was stopped):**
+
+```text
+Initializing database if needed... Success!
+Updating database... Success!
+Generating proxies... Success!
+Clearing entities cache... Success!
+Creating first API key... Success!
+
+1795781858418775096     debug   rpc     plugin was started      {"address": "tcp://127.0.0.1:6001", "list of the plugins with RPC methods:": ["lock", "resetter", "jobs", "informer", "app"]}
+2026-11-27T12:17:38+0000        DEBUG   jobs            initializing driver     {"pipeline": "shlink", "driver": "memory"}
+2026-11-27T12:17:38+0000        DEBUG   jobs            driver ready    {"pipeline": "shlink", "driver": "memory", "start": "2026-11-27T12:17:38+0000", "elapsed": 0}
+1795781858419265878     debug   memory  pipeline was started    {"driver": "memory", "pipeline": "shlink", "start": "2026-11-27 12:17:38.419263619 +0000 UTC", "elapsed": "17.187µs"}
+[INFO] RoadRunner server started; version: 2025.1.15, buildtime: 2026-06-17T16:05:22+0000
+```
+
+**What This Shows:**
+- **Graceful Degradation (No Container Crash):** The RoadRunner application server inside `shlink-server` remained up and running without crashing or restarting when `shlink-db` stopped, and no unhandled fatal startup errors occurred.
+- **Per-Request Health Probing:** Shlink evaluates database reachability dynamically per request rather than holding a single fragile startup lock. When `/rest/health` attempted to query `shlink-db:5432` and failed to connect, it caught the failure and returned `503 Service Unavailable` (`"status":"fail"`) so load balancers know not to route traffic to it.
+- **Automatic Recovery:** Once `shlink-db` restarted, subsequent requests re-established PostgreSQL connections automatically without requiring a `shlink-server` restart, returning `/rest/health` to `200 OK` (`"status":"pass"`).
+
+## Final Environment Cleanup Verification
+
+All task containers and the `shlink-net` custom network were removed after verification:
+
+```text
+user1@LAPTOP-EMCVDVR6:~$ docker rm -f shlink-server shlink-redis shlink-db
+shlink-server
+shlink-redis
+shlink-db
+
+user1@LAPTOP-EMCVDVR6:~$ docker network rm shlink-net
+shlink-net
+
+user1@LAPTOP-EMCVDVR6:~$ docker ps -a
+CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES
+
+user1@LAPTOP-EMCVDVR6:~$ docker network ls
+NETWORK ID     NAME                                              DRIVER    SCOPE
+911c8298d375   bridge                                            bridge    local
+ed791f9acd0f   glynac-devops-infrastructure-security_redis-net   bridge    local
+3de7878b6fbe   host                                              host      local
+0d88ac19c659   none                                              null      local
+```
 
 ## Security & Secrets Hygiene
 
@@ -45,7 +102,7 @@ All four containers run on the custom bridge network `shlink-net`. Only the Shli
 
 ## Deliverables in This Repository
 
-- `README.md` — Project overview, architecture summary, and technical notes.
+- `README.md` — Project overview, embedded architecture diagram, technical findings, and cleanup verification.
 - `run-commands.md` — Complete end-to-end Docker setup, smoke test, failure test, and cleanup commands.
 - `testing.md` — Verification logs and outputs for network isolation, DNS resolution, smoke tests (S1–S4), and database outage recovery.
-- `Architecture.md` & hand-drawn diagram — Service topology and port exposure diagram.
+- `diagram.jpg` & `Architecture.md` — Hand-drawn and Mermaid service topology diagrams.

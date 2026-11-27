@@ -69,6 +69,7 @@ Non-authoritative answer:
 ```bash
 docker stop shlink-db
 curl -i -s http://localhost:8080/rest/health
+docker logs --tail 15 shlink-server
 docker start shlink-db && sleep 5
 curl -i -s http://localhost:8080/rest/health
 ```
@@ -76,10 +77,32 @@ curl -i -s http://localhost:8080/rest/health
 **Observed Output (While `shlink-db` Stopped):**
 ```http
 HTTP/1.1 503 Service Unavailable
+Content-Length: 120
 Content-Type: application/health+json
+X-Request-Id: da8a7784-dd2e-46d3-82b3-3e760dd5d5a1
+Date: Fri, 27 Nov 2026 12:19:49 GMT
 
 {"status":"fail","version":"5.1.6","links":{"about":"https://shlink.io","project":"https://github.com/shlinkio/shlink"}}
 ```
+
+**`shlink-server` Logs While `shlink-db` Was Stopped:**
+```text
+Initializing database if needed... Success!
+Updating database... Success!
+Generating proxies... Success!
+Clearing entities cache... Success!
+Creating first API key... Success!
+
+1795781858418775096     debug   rpc     plugin was started      {"address": "tcp://127.0.0.1:6001", "list of the plugins with RPC methods:": ["lock", "resetter", "jobs", "informer", "app"]}
+2026-11-27T12:17:38+0000        DEBUG   jobs            initializing driver     {"pipeline": "shlink", "driver": "memory"}
+2026-11-27T12:17:38+0000        DEBUG   jobs            driver ready    {"pipeline": "shlink", "driver": "memory", "start": "2026-11-27T12:17:38+0000", "elapsed": 0}
+1795781858419265878     debug   memory  pipeline was started    {"driver": "memory", "pipeline": "shlink", "start": "2026-11-27 12:17:38.419263619 +0000 UTC", "elapsed": "17.187µs"}
+[INFO] RoadRunner server started; version: 2025.1.15, buildtime: 2026-06-17T16:05:22+0000
+```
+
+**What This Shows:**
+- The `shlink-server` container and RoadRunner worker process remain running (`RoadRunner server started`) without crashing or restarting when `shlink-db` is stopped.
+- Because Shlink only connects to PostgreSQL on incoming requests, the health check endpoint catches the database connection failure to `shlink-db:5432` and cleanly returns `HTTP/1.1 503 Service Unavailable` (`"status": "fail"`).
 
 **Observed Output (After `shlink-db` Restarted):**
 ```http
@@ -99,6 +122,19 @@ docker rm -f shlink-web shlink-server shlink-redis shlink-db
 docker network rm shlink-net
 docker ps -a
 docker network ls
+```
+
+**Observed Output After Cleanup:**
+```text
+user1@LAPTOP-EMCVDVR6:~$ docker ps -a
+CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES
+
+user1@LAPTOP-EMCVDVR6:~$ docker network ls
+NETWORK ID     NAME                                              DRIVER    SCOPE
+911c8298d375   bridge                                            bridge    local
+ed791f9acd0f   glynac-devops-infrastructure-security_redis-net   bridge    local
+3de7878b6fbe   host                                              host      local
+0d88ac19c659   none                                              null      local
 ```
 
 **Result:** PASS — All task containers and `shlink-net` were removed cleanly.
