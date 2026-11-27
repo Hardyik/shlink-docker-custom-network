@@ -13,6 +13,10 @@ This project deploys a multi-container Shlink URL-shortening stack using plain D
 - **Redis:** `redis:7-alpine`
 - **BusyBox:** `busybox` (for DNS and connectivity verification)
 
+## Architecture Diagram
+
+![Shlink Docker Custom Network Architecture](./diagram.jpg)
+
 ## Network & Port Configuration
 
 All four containers run on the custom bridge network `shlink-net`. Only the Shlink Server and Web Client ports are published to the host; PostgreSQL and Redis remain strictly internal.
