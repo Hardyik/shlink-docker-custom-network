@@ -15,7 +15,7 @@ This project deploys a multi-container Shlink URL-shortening stack using plain D
 
 ## Architecture Diagram
 
-![Shlink Docker Custom Network Architecture](./diagram.jpg)
+![Shlink Docker Custom Network Architecture](./DEVOPS-6-Shlink-Docker/Architecture.jpg)
 
 ## Network & Port Configuration
 
